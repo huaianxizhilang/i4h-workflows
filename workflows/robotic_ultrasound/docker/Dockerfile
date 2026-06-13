@@ -17,6 +17,10 @@
 
 FROM nvidia/cuda:12.8.1-devel-ubuntu24.04
 
+# Regional apt mirror (China: mirrors.ustc.edu.cn, mirrors.aliyun.com, mirrors.tuna.tsinghua.edu.cn)
+# Set APT_MIRROR= to keep archive.ubuntu.com
+ARG APT_MIRROR=mirrors.ustc.edu.cn
+
 # Optional PyPI mirror configuration
 ARG PIP_INDEX_URL
 ARG PIP_EXTRA_INDEX_URL
@@ -25,7 +29,19 @@ ARG PIP_TRUSTED_HOST
 SHELL ["/bin/bash", "-c"]
 
 # Install all packages in a single layer to avoid caching issues
-RUN apt-get update && \
+RUN if [[ -n "${APT_MIRROR}" ]]; then \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
+            [[ -f "${f}" ]] || continue; \
+            sed -i \
+                -e "s|http://archive.ubuntu.com/ubuntu/|http://${APT_MIRROR}/ubuntu/|g" \
+                -e "s|http://security.ubuntu.com/ubuntu/|http://${APT_MIRROR}/ubuntu/|g" \
+                -e "s|archive.ubuntu.com|${APT_MIRROR}|g" \
+                -e "s|security.ubuntu.com|${APT_MIRROR}|g" \
+                "${f}"; \
+        done; \
+        echo "Using apt mirror: ${APT_MIRROR}"; \
+    fi && \
+    apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
         wget \
         curl \

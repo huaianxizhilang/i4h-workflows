@@ -26,9 +26,19 @@ if [[ "${I4H_BUILD_NO_CACHE}" == "1" ]]; then
     BUILD_ARGS+=(--no-cache)
 fi
 
+DOCKER_BUILD_EXTRA=""
+if [[ -n "${I4H_APT_MIRROR:-}" ]]; then
+    DOCKER_BUILD_EXTRA="--build-arg APT_MIRROR=${I4H_APT_MIRROR}"
+    info "Docker build apt mirror: ${I4H_APT_MIRROR}"
+fi
+
 if [[ "${I4H_SKIP_BUILD}" != "1" ]]; then
     info "Building container (first run may take 30-60+ minutes)..."
-    ./i4h build-container "${I4H_WORKFLOW}" "${BUILD_ARGS[@]}"
+    if [[ -n "${DOCKER_BUILD_EXTRA}" ]]; then
+        ./i4h build-container "${I4H_WORKFLOW}" "${BUILD_ARGS[@]}" --build-args "${DOCKER_BUILD_EXTRA}"
+    else
+        ./i4h build-container "${I4H_WORKFLOW}" "${BUILD_ARGS[@]}"
+    fi
 else
     info "Skipping build (I4H_SKIP_BUILD=1)"
 fi
