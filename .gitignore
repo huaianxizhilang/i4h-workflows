@@ -254,3 +254,6 @@ rti/
 
 # Sandbox-fallback state for the lerobot-viz launcher
 .lerobot-viz/
+
+# Deploy secrets (passwords, remote host overrides)
+deploy/config/local.env
