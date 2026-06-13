@@ -57,6 +57,8 @@ echo "Installing IsaacLab ..."
 yes Yes | ./isaaclab.sh --install
 echo "Verifying isaaclab core was installed (isaaclab.sh silently swallows failures)..."
 python -c "import isaaclab; print(isaaclab.__file__)"
+# Isaac Sim 5.1 expects wp.types.array; isaaclab pulls warp-lang>=1.14 which removed it.
+pip install "warp-lang==1.8.1"
 popd
 
 # Remove top-level import of omni.log
