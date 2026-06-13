@@ -13,6 +13,9 @@ if ! nvidia-smi >/dev/null 2>&1; then
     die "nvidia-smi failed. Complete L2 and reboot first."
 fi
 
+# Put Docker images/layers on data disk before first pull/build
+configure_docker_data_root
+
 # Docker Engine
 if ! command -v docker >/dev/null 2>&1; then
     info "Installing Docker Engine..."
@@ -35,9 +38,11 @@ if ! dpkg -l nvidia-container-toolkit 2>/dev/null | grep -q ^ii; then
         | run_root tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
     apt_install nvidia-container-toolkit
     run_root nvidia-ctk runtime configure --runtime=docker
+    configure_docker_data_root
     run_root systemctl restart docker
 else
     info "nvidia-container-toolkit already installed"
+    configure_docker_data_root
 fi
 
 info "Testing GPU inside Docker..."

@@ -52,6 +52,24 @@ check "RTI license file" test -f "${RTI_LICENSE_FILE}"
 check "cache dirs" test -d "${I4H_DOCKER_ROOT}/isaac-sim/cache/kit"
 check "deploy env file" test -f "${HOME}/.i4h-deploy.env"
 
+if [[ -n "${I4H_DOCKER_DATA_ROOT:-}" ]] && command -v docker >/dev/null; then
+    root_dir="$(docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/ {print $2}')"
+    if [[ "${root_dir}" == "${I4H_DOCKER_DATA_ROOT}" ]]; then
+        echo "[PASS] Docker data-root on data disk (${root_dir})"
+        PASS=$((PASS + 1))
+    else
+        echo "[WARN] Docker data-root is ${root_dir:-unknown}, expected ${I4H_DOCKER_DATA_ROOT}"
+        WARN_COUNT=$((WARN_COUNT + 1))
+    fi
+fi
+
+if [[ -n "${I4H_DATA_ROOT:-}" ]]; then
+    check "data disk mounted" test -d "${I4H_DATA_ROOT}"
+    warn_check "home/docker symlink" test -L "${HOME}/docker"
+fi
+
+print_storage_layout
+
 if [[ -n "${DISPLAY:-}" ]]; then
     warn_check "X11 DISPLAY (${DISPLAY})" xdpyinfo
 else

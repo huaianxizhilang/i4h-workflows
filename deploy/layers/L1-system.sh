@@ -17,6 +17,8 @@ apt_install \
     openssh-client rsync
 
 ensure_dirs
+setup_home_symlinks
+print_storage_layout
 open_dds_firewall
 
 info "L1 complete"

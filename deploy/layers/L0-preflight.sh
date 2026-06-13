@@ -35,10 +35,23 @@ if (( MEM_GB < 32 )); then
 fi
 
 # Disk
-DISK_AVAIL_GB=$(df -BG "${HOME}" | awk 'NR==2 {gsub(/G/,"",$4); print $4}')
-info "Free disk under ${HOME}: ~${DISK_AVAIL_GB} GB"
-if (( DISK_AVAIL_GB < 80 )); then
-    warn "Recommended ≥100 GB free; you have ~${DISK_AVAIL_GB} GB"
+if [[ -n "${I4H_DATA_ROOT:-}" ]]; then
+    DATA_AVAIL=$(disk_avail_gb "${I4H_DATA_ROOT}")
+    info "Data disk (${I4H_DATA_ROOT}) free: ~${DATA_AVAIL} GB"
+    if (( DATA_AVAIL < 80 )); then
+        warn "Recommended ≥100 GB free on data disk; you have ~${DATA_AVAIL} GB"
+    fi
+else
+    DISK_AVAIL_GB=$(disk_avail_gb "${HOME}")
+    info "Free disk under ${HOME}: ~${DISK_AVAIL_GB} GB"
+    if (( DISK_AVAIL_GB < 80 )); then
+        warn "Recommended ≥100 GB free; you have ~${DISK_AVAIL_GB} GB — consider I4H_DATA_ROOT=/data"
+    fi
+fi
+SYS_AVAIL=$(disk_avail_gb /)
+info "System disk (/) free: ~${SYS_AVAIL} GB"
+if (( SYS_AVAIL < 15 )); then
+    warn "System disk low (~${SYS_AVAIL} GB). Set I4H_DATA_ROOT to a mounted data disk."
 fi
 
 # GPU

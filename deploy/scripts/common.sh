@@ -12,6 +12,125 @@ load_config() {
         # shellcheck source=/dev/null
         source "${DEPLOY_ROOT}/config/local.env"
     fi
+    resolve_storage_paths
+}
+
+resolve_storage_paths() {
+    # Master switch: put heavy data on a mounted data disk (e.g. /data).
+    if [[ -n "${I4H_DATA_ROOT:-}" ]]; then
+        if [[ ! -d "${I4H_DATA_ROOT}" ]]; then
+            die "I4H_DATA_ROOT=${I4H_DATA_ROOT} does not exist. Mount the data disk first."
+        fi
+        I4H_INSTALL_DIR="${I4H_INSTALL_DIR:-${I4H_DATA_ROOT}/i4h-workflows}"
+        I4H_DOCKER_ROOT="${I4H_DOCKER_ROOT:-${I4H_DATA_ROOT}/docker}"
+        I4H_CACHE_ROOT="${I4H_CACHE_ROOT:-${I4H_DATA_ROOT}/cache}"
+        I4H_DOCKER_DATA_ROOT="${I4H_DOCKER_DATA_ROOT:-${I4H_DATA_ROOT}/docker-engine}"
+    else
+        I4H_INSTALL_DIR="${I4H_INSTALL_DIR:-$HOME/i4h-workflows}"
+        I4H_DOCKER_ROOT="${I4H_DOCKER_ROOT:-$HOME/docker}"
+        I4H_CACHE_ROOT="${I4H_CACHE_ROOT:-$HOME/.cache}"
+        I4H_DOCKER_DATA_ROOT="${I4H_DOCKER_DATA_ROOT:-}"
+    fi
+    RTI_LICENSE_FILE="${RTI_LICENSE_FILE:-${I4H_DOCKER_ROOT}/rti/rti_license.dat}"
+    export I4H_INSTALL_DIR I4H_DOCKER_ROOT I4H_CACHE_ROOT I4H_DOCKER_DATA_ROOT RTI_LICENSE_FILE
+}
+
+link_into_home() {
+    local target="$1" link="$2"
+    mkdir -p "$(dirname "${target}")" "$(dirname "${link}")"
+    if [[ -L "${link}" ]]; then
+        local current
+        current="$(readlink -f "${link}")"
+        if [[ "${current}" == "$(readlink -f "${target}")" ]]; then
+            return 0
+        fi
+        rm -f "${link}"
+    elif [[ -e "${link}" ]]; then
+        warn "${link} exists and is not a symlink — leaving as-is (may use system disk)"
+        return 0
+    fi
+    ln -sfn "${target}" "${link}"
+    info "Symlink ${link} → ${target}"
+}
+
+setup_home_symlinks() {
+    # ./i4h and HoloHub expect ~/docker and ~/.cache/* — link to data disk paths.
+    [[ -n "${I4H_DATA_ROOT:-}" ]] || return 0
+    link_into_home "${I4H_DOCKER_ROOT}" "${HOME}/docker"
+    link_into_home "${I4H_CACHE_ROOT}/i4h-assets" "${HOME}/.cache/i4h-assets"
+    link_into_home "${I4H_CACHE_ROOT}/huggingface" "${HOME}/.cache/huggingface"
+    if [[ "$(readlink -f "${I4H_INSTALL_DIR}" 2>/dev/null || echo "${I4H_INSTALL_DIR}")" != \
+          "$(readlink -f "${HOME}/i4h-workflows" 2>/dev/null || echo "__missing__")" ]]; then
+        link_into_home "${I4H_INSTALL_DIR}" "${HOME}/i4h-workflows"
+    fi
+}
+
+configure_docker_data_root() {
+    [[ -n "${I4H_DOCKER_DATA_ROOT:-}" ]] || return 0
+    require_root_or_sudo
+    mkdir -p "${I4H_DOCKER_DATA_ROOT}"
+
+    local daemon_json="/etc/docker/daemon.json"
+    local current_root=""
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        current_root="$(docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/ {print $2}')"
+    fi
+
+    if [[ -n "${current_root}" && "${current_root}" == "${I4H_DOCKER_DATA_ROOT}" ]]; then
+        info "Docker data-root already ${I4H_DOCKER_DATA_ROOT}"
+        return 0
+    fi
+
+    if [[ -n "${current_root}" && -d "${current_root}" ]] && \
+        [[ "$(find "${current_root}" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)" -gt 0 ]]; then
+        warn "Docker already stores data in ${current_root}; not moving automatically."
+        warn "Fresh machine: set I4H_DATA_ROOT before L3. To migrate manually:"
+        warn "  systemctl stop docker && rsync -a ${current_root}/ ${I4H_DOCKER_DATA_ROOT}/ && configure data-root"
+        return 0
+    fi
+
+    info "Configuring Docker data-root → ${I4H_DOCKER_DATA_ROOT}"
+    run_root mkdir -p /etc/docker
+    if [[ -f "${daemon_json}" ]]; then
+        python3 - "${daemon_json}" "${I4H_DOCKER_DATA_ROOT}" <<'PY'
+import json, sys
+path, data_root = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as f:
+    cfg = json.load(f)
+cfg["data-root"] = data_root
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+PY
+    else
+        printf '{\n  "data-root": "%s"\n}\n' "${I4H_DOCKER_DATA_ROOT}" | run_root tee "${daemon_json}" >/dev/null
+    fi
+
+    if command -v docker >/dev/null 2>&1; then
+        run_root systemctl restart docker
+        sleep 2
+        current_root="$(docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/ {print $2}')"
+        [[ "${current_root}" == "${I4H_DOCKER_DATA_ROOT}" ]] || die "Failed to set Docker data-root"
+        info "Docker data-root active: ${current_root}"
+    fi
+}
+
+disk_avail_gb() {
+    local path="$1"
+    df -BG "${path}" 2>/dev/null | awk 'NR==2 {gsub(/G/,"",$4); print $4}'
+}
+
+print_storage_layout() {
+    info "Storage layout:"
+    info "  I4H_DATA_ROOT=${I4H_DATA_ROOT:-<system disk>}"
+    info "  I4H_INSTALL_DIR=${I4H_INSTALL_DIR}"
+    info "  I4H_DOCKER_ROOT=${I4H_DOCKER_ROOT}"
+    info "  I4H_CACHE_ROOT=${I4H_CACHE_ROOT}"
+    info "  I4H_DOCKER_DATA_ROOT=${I4H_DOCKER_DATA_ROOT:-/var/lib/docker (default)}"
+    if [[ -n "${I4H_DATA_ROOT:-}" ]]; then
+        info "  data disk free: ~$(disk_avail_gb "${I4H_DATA_ROOT}") GB under ${I4H_DATA_ROOT}"
+    fi
+    info "  system disk free: ~$(disk_avail_gb /) GB under /"
 }
 
 log()  { echo "[$(date '+%H:%M:%S')] $*"; }
@@ -89,6 +208,97 @@ nvidia_smi_query() {
 
 docker_gpu_test() {
     docker run --rm --gpus all "${I4H_CUDA_TEST_IMAGE}" nvidia-smi >/dev/null
+}
+
+ensure_vnc_password() {
+    mkdir -p "${HOME}/.vnc"
+    if [[ -f "${HOME}/.vnc/passwd" ]]; then
+        return 0
+    fi
+    if [[ -n "${I4H_VNC_PASSWORD:-}" ]]; then
+        info "Creating VNC password from I4H_VNC_PASSWORD (non-interactive)"
+        install -m 700 -d "${HOME}/.vnc"
+        printf '%s\n' "${I4H_VNC_PASSWORD}" | vncpasswd -f > "${HOME}/.vnc/passwd"
+        chmod 600 "${HOME}/.vnc/passwd"
+        return 0
+    fi
+    if [[ -t 0 ]]; then
+        warn "Set VNC password interactively (or set I4H_VNC_PASSWORD for one-click deploy):"
+        vncpasswd || die "vncpasswd required for VNC mode"
+        return 0
+    fi
+    die "No ~/.vnc/passwd and I4H_VNC_PASSWORD unset. Set I4H_VNC_PASSWORD in deploy/config/local.env for headless one-click deploy."
+}
+
+ensure_vnc_xstartup() {
+    install -m 700 -d "${HOME}/.vnc"
+    if [[ ! -f "${HOME}/.vnc/xstartup" ]]; then
+        cat > "${HOME}/.vnc/xstartup" <<'EOF'
+#!/bin/sh
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec startxfce4
+EOF
+        chmod +x "${HOME}/.vnc/xstartup"
+        info "Created ~/.vnc/xstartup for XFCE"
+    fi
+}
+
+ensure_vnc_config() {
+    install -m 700 -d "${HOME}/.vnc"
+    local allow_remote="${I4H_VNC_ALLOW_REMOTE:-1}"
+    if [[ ! -f "${HOME}/.vnc/config" ]]; then
+        if [[ "${allow_remote}" == "1" ]]; then
+            cat > "${HOME}/.vnc/config" <<'EOF'
+localhost=no
+alwaysshared
+EOF
+            info "Created ~/.vnc/config (remote VNC allowed)"
+        else
+            touch "${HOME}/.vnc/config"
+        fi
+    fi
+}
+
+vnc_display_number() {
+    echo "${I4H_VNC_DISPLAY#:}"
+}
+
+vnc_is_running() {
+    vncserver -list 2>/dev/null | grep -q "$(vnc_display_number)"
+}
+
+start_vnc_server() {
+    ensure_vnc_password
+    ensure_vnc_xstartup
+    ensure_vnc_config
+    export DISPLAY="${I4H_VNC_DISPLAY}"
+
+    if vnc_is_running; then
+        info "VNC already running on ${DISPLAY}"
+        return 0
+    fi
+
+    local vnc_args=(
+        "${I4H_VNC_DISPLAY}"
+        -geometry "${I4H_VNC_GEOMETRY}"
+        -depth 24
+    )
+    if [[ "${I4H_VNC_ALLOW_REMOTE:-1}" == "1" ]]; then
+        vnc_args+=(-localhost no)
+    fi
+
+    info "Starting TigerVNC + XFCE on ${DISPLAY}..."
+    vncserver "${vnc_args[@]}"
+    info "VNC listening on port $(( 5900 + $(vnc_display_number) )) (DISPLAY=${DISPLAY})"
+}
+
+open_vnc_firewall() {
+    local port=$(( 5900 + $(vnc_display_number) ))
+    if command -v ufw >/dev/null 2>&1; then
+        run_root ufw allow "${port}/tcp" 2>/dev/null || true
+        info "UFW allow ${port}/tcp (if ufw active)"
+    fi
 }
 
 setup_display_for_docker() {
