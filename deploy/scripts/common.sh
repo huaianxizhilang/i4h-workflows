@@ -25,6 +25,7 @@ resolve_storage_paths() {
         I4H_DOCKER_ROOT="${I4H_DOCKER_ROOT:-${I4H_DATA_ROOT}/docker}"
         I4H_CACHE_ROOT="${I4H_CACHE_ROOT:-${I4H_DATA_ROOT}/cache}"
         I4H_DOCKER_DATA_ROOT="${I4H_DOCKER_DATA_ROOT:-${I4H_DATA_ROOT}/docker-engine}"
+        I4H_CONTAINERD_ROOT="${I4H_CONTAINERD_ROOT:-${I4H_DATA_ROOT}/containerd}"
     else
         I4H_INSTALL_DIR="${I4H_INSTALL_DIR:-$HOME/i4h-workflows}"
         I4H_DOCKER_ROOT="${I4H_DOCKER_ROOT:-$HOME/docker}"
@@ -32,7 +33,7 @@ resolve_storage_paths() {
         I4H_DOCKER_DATA_ROOT="${I4H_DOCKER_DATA_ROOT:-}"
     fi
     RTI_LICENSE_FILE="${RTI_LICENSE_FILE:-${I4H_DOCKER_ROOT}/rti/rti_license.dat}"
-    export I4H_INSTALL_DIR I4H_DOCKER_ROOT I4H_CACHE_ROOT I4H_DOCKER_DATA_ROOT RTI_LICENSE_FILE
+    export I4H_INSTALL_DIR I4H_DOCKER_ROOT I4H_CACHE_ROOT I4H_DOCKER_DATA_ROOT I4H_CONTAINERD_ROOT RTI_LICENSE_FILE
 }
 
 link_into_home() {
@@ -108,10 +109,52 @@ PY
 
     if command -v docker >/dev/null 2>&1; then
         run_root systemctl restart docker
-        sleep 2
-        current_root="$(docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/ {print $2}')"
-        [[ "${current_root}" == "${I4H_DOCKER_DATA_ROOT}" ]] || die "Failed to set Docker data-root"
+        sleep 3
+        local tries=0
+        while [[ $tries -lt 5 ]]; do
+            current_root="$(docker_cli info 2>/dev/null | awk -F': ' '/Docker Root Dir/ {print $2}')"
+            [[ -n "${current_root}" ]] && break
+            sleep 2
+            tries=$((tries + 1))
+        done
+        [[ "${current_root}" == "${I4H_DOCKER_DATA_ROOT}" ]] || die "Failed to set Docker data-root (got: ${current_root:-<empty>})"
         info "Docker data-root active: ${current_root}"
+    fi
+}
+
+# buildkit stores overlay layers under containerd (default /var/lib/containerd on system disk).
+configure_containerd_data_root() {
+    [[ -n "${I4H_CONTAINERD_ROOT:-}" ]] || return 0
+    require_root_or_sudo
+    mkdir -p "${I4H_CONTAINERD_ROOT}"
+
+    local link="/var/lib/containerd"
+    if [[ -L "${link}" ]]; then
+        local target
+        target="$(readlink -f "${link}")"
+        if [[ "${target}" == "$(readlink -f "${I4H_CONTAINERD_ROOT}")" ]]; then
+            info "containerd already on data disk: ${I4H_CONTAINERD_ROOT}"
+            return 0
+        fi
+    fi
+
+    if [[ -d "${link}" && ! -L "${link}" ]] && \
+        [[ "$(find "${link}" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)" -gt 0 ]]; then
+        info "Migrating containerd → ${I4H_CONTAINERD_ROOT} (frees system disk for docker builds)"
+        run_root systemctl stop docker 2>/dev/null || true
+        run_root systemctl stop containerd 2>/dev/null || true
+        if [[ ! -d "${I4H_CONTAINERD_ROOT}" ]] || \
+            [[ "$(find "${I4H_CONTAINERD_ROOT}" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l)" -eq 0 ]]; then
+            run_root rsync -a "${link}/" "${I4H_CONTAINERD_ROOT}/"
+        fi
+        run_root mv "${link}" "${link}.bak.$(date +%s)" 2>/dev/null || run_root rm -rf "${link}"
+        run_root ln -s "${I4H_CONTAINERD_ROOT}" "${link}"
+        run_root systemctl start containerd 2>/dev/null || true
+        run_root systemctl start docker
+        info "containerd migrated; symlink ${link} → ${I4H_CONTAINERD_ROOT}"
+    elif [[ ! -e "${link}" ]]; then
+        run_root ln -s "${I4H_CONTAINERD_ROOT}" "${link}"
+        info "containerd symlink ${link} → ${I4H_CONTAINERD_ROOT}"
     fi
 }
 
@@ -127,6 +170,7 @@ print_storage_layout() {
     info "  I4H_DOCKER_ROOT=${I4H_DOCKER_ROOT}"
     info "  I4H_CACHE_ROOT=${I4H_CACHE_ROOT}"
     info "  I4H_DOCKER_DATA_ROOT=${I4H_DOCKER_DATA_ROOT:-/var/lib/docker (default)}"
+    info "  I4H_CONTAINERD_ROOT=${I4H_CONTAINERD_ROOT:-/var/lib/containerd (default)}"
     if [[ -n "${I4H_DATA_ROOT:-}" ]]; then
         info "  data disk free: ~$(disk_avail_gb "${I4H_DATA_ROOT}") GB under ${I4H_DATA_ROOT}"
     fi

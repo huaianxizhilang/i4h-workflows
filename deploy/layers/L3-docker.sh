@@ -15,6 +15,10 @@ fi
 
 # Put Docker images/layers on data disk before first pull/build
 configure_docker_data_root
+configure_containerd_data_root
+
+# Minimal Ubuntu images may omit sources.list.d; Docker/NVIDIA installers need it.
+run_root mkdir -p /etc/apt/sources.list.d
 
 # Docker Engine
 if ! command -v docker >/dev/null 2>&1; then
@@ -47,6 +51,6 @@ fi
 
 info "Testing GPU inside Docker..."
 docker_gpu_test
-docker run --rm --gpus all "${I4H_CUDA_TEST_IMAGE}" nvidia-smi
+docker_cli run --rm --gpus all "${I4H_CUDA_TEST_IMAGE}" nvidia-smi
 
 info "L3 complete"
