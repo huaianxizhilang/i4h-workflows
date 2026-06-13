@@ -147,6 +147,7 @@ I4H_VNC_PASSWORD=your-secure-password
 | `I4H_VNC_PASSWORD` | VNC 密码；**Mode B 必填**（非交互部署）；Mode A 建议填写 |
 | `I4H_VNC_DISPLAY` | 默认 `:1`，对应端口 **5901** |
 | `I4H_VNC_ALLOW_REMOTE` | 默认 `1`，允许外网连接；需在云安全组放行 **TCP 5901** |
+| `I4H_VNC_AUTOSTART` | 默认 `1`，L4 注册 **systemd `i4h-vnc.service`**，重启后自动监听 5901 |
 
 ### 部署完成后如何看画面
 
@@ -343,7 +344,7 @@ cd ~/i4h-workflows
 |------|------|
 | L2 后需重启 | 重启后 `--from L3` 继续 |
 | `No NVIDIA GPU detected` | 重跑 L3，检查 `docker run --rm --gpus all nvidia/cuda:12.8.1-base-ubuntu24.04 nvidia-smi` |
-| VNC 连不上 | 检查安全组 TCP 5901、`I4H_VNC_PASSWORD`、`I4H_VNC_ALLOW_REMOTE=1` |
+| VNC 连不上 | 检查安全组 TCP 5901、`I4H_VNC_PASSWORD`、`I4H_VNC_ALLOW_REMOTE=1`；重启后执行 `systemctl status i4h-vnc` 或 `bash deploy/layers/L4-gui.sh` |
 | 黑屏 / 容器无窗口 | 确认 VNC 已连上；`xhost +local:docker` |
 | RTI license 错误 | 设置 `RTI_LICENSE_FILE` 或 `RTI_LICENSE_URL` |
 | 无超声图像 | GPU 无 RT Core，换 RTX 4090 等 |

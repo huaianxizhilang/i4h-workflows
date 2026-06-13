@@ -365,6 +365,61 @@ start_vnc_server() {
     info "VNC listening on port $(( 5900 + $(vnc_display_number) )) (DISPLAY=${DISPLAY})"
 }
 
+stop_vnc_server() {
+    export DISPLAY="${I4H_VNC_DISPLAY}"
+    if vnc_is_running; then
+        info "Stopping TigerVNC on ${DISPLAY}..."
+        vncserver -kill "${I4H_VNC_DISPLAY}"
+    fi
+}
+
+_i4h_deploy_root() {
+    cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd
+}
+
+enable_vnc_autostart() {
+    [[ "${I4H_VNC_AUTOSTART:-1}" == "1" ]] || return 0
+    [[ "${I4H_GUI_MODE}" == "vnc" ]] || return 0
+
+    require_root_or_sudo
+    local deploy_root user home unit_path
+    deploy_root="$(_i4h_deploy_root)"
+    user="$(whoami)"
+    home="${HOME}"
+
+    unit_path="/etc/systemd/system/i4h-vnc.service"
+    info "Installing systemd unit ${unit_path} (boot autostart for TigerVNC)"
+
+    run_root tee "${unit_path}" >/dev/null <<EOF
+[Unit]
+Description=i4h TigerVNC desktop (XFCE for Isaac Sim / DearPyGUI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=${user}
+Group=${user}
+Environment=HOME=${home}
+EnvironmentFile=-${home}/.i4h-deploy.env
+ExecStart=${deploy_root}/scripts/start-vnc.sh
+ExecStop=${deploy_root}/scripts/stop-vnc.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    chmod +x "${deploy_root}/scripts/start-vnc.sh" "${deploy_root}/scripts/stop-vnc.sh"
+    run_root systemctl daemon-reload
+    run_root systemctl enable i4h-vnc.service
+    if ! vnc_is_running; then
+        run_root systemctl start i4h-vnc.service
+    fi
+    info "TigerVNC autostart enabled — check: systemctl status i4h-vnc"
+}
+
 open_vnc_firewall() {
     local port=$(( 5900 + $(vnc_display_number) ))
     if command -v ufw >/dev/null 2>&1; then

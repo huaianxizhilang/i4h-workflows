@@ -25,6 +25,7 @@ case "${I4H_GUI_MODE}" in
         apt_install tigervnc-standalone-server xfce4 xfce4-goodies dbus-x11 x11-utils
         start_vnc_server
         open_vnc_firewall
+        enable_vnc_autostart
         ;;
     x11-ssh|auto)
         if [[ -z "${DISPLAY:-}" ]]; then
