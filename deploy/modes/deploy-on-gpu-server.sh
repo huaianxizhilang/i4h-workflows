@@ -58,12 +58,11 @@ LAYERS=(
 )
 
 should_run() {
-    local id="$1"  # e.g. L0
-    local from_num to_num cur_num
-    from_num="${FROM_LAYER#L}"
-    to_num="${TO_LAYER#L}"
-    cur_num="${id#L}"
-    (( 10#cur_num >= 10#from_num && 10#cur_num <= 10#to_num ))
+    local id="$1"
+    local from_num="${FROM_LAYER#L}"
+    local to_num="${TO_LAYER#L}"
+    local cur_num="${id#L}"
+    (( 10#${cur_num} >= 10#${from_num} && 10#${cur_num} <= 10#${to_num} ))
 }
 
 info "Mode A: deploy on local GPU server (${USER}@$(hostname))"
@@ -83,7 +82,7 @@ for layer in "${LAYERS[@]}"; do
     fi
 done
 
-if [[ "${I4H_RUN_VERIFY_AFTER_DEPLOY}" == "1" ]]; then
+if [[ "${I4H_RUN_VERIFY_AFTER_DEPLOY}" == "1" && "${TO_LAYER}" == "L6" ]]; then
     bash "${DEPLOY_ROOT}/verify/verify-all.sh"
 fi
 

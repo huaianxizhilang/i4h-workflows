@@ -334,6 +334,18 @@ start_vnc_server() {
     ensure_vnc_config
     export DISPLAY="${I4H_VNC_DISPLAY}"
 
+    # TigerVNC requires a resolvable hostname (FQDN)
+    local host_fqdn host_short
+    host_fqdn="$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo localhost)"
+    host_short="${host_fqdn%%.*}"
+    if ! getent hosts "${host_fqdn}" >/dev/null 2>&1; then
+        info "Adding ${host_fqdn} to /etc/hosts for VNC"
+        require_root_or_sudo
+        if ! grep -q "[[:space:]]${host_fqdn}" /etc/hosts 2>/dev/null; then
+            echo "127.0.1.1 ${host_fqdn} ${host_short}" | run_root tee -a /etc/hosts >/dev/null
+        fi
+    fi
+
     if vnc_is_running; then
         info "VNC already running on ${DISPLAY}"
         return 0
