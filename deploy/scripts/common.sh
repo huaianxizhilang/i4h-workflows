@@ -73,8 +73,8 @@ configure_docker_data_root() {
 
     local daemon_json="/etc/docker/daemon.json"
     local current_root=""
-    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-        current_root="$(docker info 2>/dev/null | awk -F': ' '/Docker Root Dir/ {print $2}')"
+    if command -v docker >/dev/null 2>&1 && docker_cli info >/dev/null 2>&1; then
+        current_root="$(docker_cli info 2>/dev/null | awk -F': ' '/Docker Root Dir/ {print $2}')"
     fi
 
     if [[ -n "${current_root}" && "${current_root}" == "${I4H_DOCKER_DATA_ROOT}" ]]; then
@@ -93,7 +93,7 @@ configure_docker_data_root() {
     info "Configuring Docker data-root → ${I4H_DOCKER_DATA_ROOT}"
     run_root mkdir -p /etc/docker
     if [[ -f "${daemon_json}" ]]; then
-        python3 - "${daemon_json}" "${I4H_DOCKER_DATA_ROOT}" <<'PY'
+        run_root python3 - "${daemon_json}" "${I4H_DOCKER_DATA_ROOT}" <<'PY'
 import json, sys
 path, data_root = sys.argv[1], sys.argv[2]
 with open(path, encoding="utf-8") as f:
@@ -203,6 +203,22 @@ run_root() {
     fi
 }
 
+# Use after usermod -aG docker in the same shell (group not active until re-login).
+docker_cli() {
+    if [[ "${EUID}" -eq 0 ]]; then
+        docker "$@"
+        return $?
+    fi
+    if docker "$@" 2>/dev/null; then
+        return 0
+    fi
+    if getent group docker 2>/dev/null | grep -qE "[,:]${USER}\b"; then
+        sg docker -c "docker $(printf '%q ' "$@")"
+        return $?
+    fi
+    run_root docker "$@"
+}
+
 apt_install() {
     require_root_or_sudo
     run_root apt-get update -qq
@@ -251,7 +267,7 @@ nvidia_smi_query() {
 }
 
 docker_gpu_test() {
-    docker run --rm --gpus all "${I4H_CUDA_TEST_IMAGE}" nvidia-smi >/dev/null
+    docker_cli run --rm --gpus all "${I4H_CUDA_TEST_IMAGE}" nvidia-smi >/dev/null
 }
 
 ensure_vnc_password() {
