@@ -411,12 +411,29 @@ download_rti_license() {
     info "RTI license saved to ${RTI_LICENSE_FILE}"
 }
 
+ensure_github_known_hosts() {
+    mkdir -p "${HOME}/.ssh"
+    chmod 700 "${HOME}/.ssh"
+    if ! ssh-keygen -F github.com >/dev/null 2>&1; then
+        info "Adding github.com to known_hosts"
+        ssh-keyscan -t ed25519,rsa github.com >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true
+        chmod 600 "${HOME}/.ssh/known_hosts" 2>/dev/null || true
+    fi
+}
+
 clone_or_update_repo() {
     if [[ -d "${I4H_INSTALL_DIR}/.git" ]]; then
+        if [[ "${I4H_SKIP_REPO_UPDATE:-0}" == "1" ]]; then
+            info "Using existing repo at ${I4H_INSTALL_DIR} (I4H_SKIP_REPO_UPDATE=1)"
+            return 0
+        fi
         info "Updating existing repo at ${I4H_INSTALL_DIR}"
-        git -C "${I4H_INSTALL_DIR}" fetch --depth 1 origin "${I4H_REPO_BRANCH}"
-        git -C "${I4H_INSTALL_DIR}" checkout "${I4H_REPO_BRANCH}"
-        git -C "${I4H_INSTALL_DIR}" pull --ff-only origin "${I4H_REPO_BRANCH}" || true
+        ensure_github_known_hosts
+        git -C "${I4H_INSTALL_DIR}" fetch --depth 1 origin "${I4H_REPO_BRANCH}" || \
+            warn "git fetch failed — using existing checkout"
+        git -C "${I4H_INSTALL_DIR}" checkout "${I4H_REPO_BRANCH}" 2>/dev/null || true
+        git -C "${I4H_INSTALL_DIR}" pull --ff-only origin "${I4H_REPO_BRANCH}" 2>/dev/null || \
+            warn "git pull skipped — using existing checkout"
     else
         info "Cloning ${I4H_REPO_URL} → ${I4H_INSTALL_DIR}"
         git clone --depth 1 --branch "${I4H_REPO_BRANCH}" "${I4H_REPO_URL}" "${I4H_INSTALL_DIR}"

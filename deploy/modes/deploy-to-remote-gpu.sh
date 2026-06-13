@@ -111,10 +111,13 @@ info "Uploading deploy scripts to ${REMOTE_DEPLOY}..."
 
 if [[ "${USE_REPO_ON_JUMP}" -eq 1 ]]; then
     REPO_ROOT="$(cd "${DEPLOY_ROOT}/.." && pwd)"
-    remote_exec "mkdir -p ${REMOTE_DEPLOY}"
-    remote_rsync "${REPO_ROOT}/" "/tmp/i4h-workflows/"
+    remote_exec "mkdir -p ${REMOTE_DEPLOY} ${I4H_INSTALL_DIR}"
+    remote_rsync "${REPO_ROOT}/" "${I4H_INSTALL_DIR}/"
     remote_rsync "${DEPLOY_ROOT}/" "${REMOTE_DEPLOY}/"
-    remote_exec "ln -sfn /tmp/i4h-workflows ${REMOTE_DEPLOY}/repo"
+    # Repo already synced from jump host — skip remote git fetch in L5
+    if ! grep -q '^I4H_SKIP_REPO_UPDATE=' "${DEPLOY_ROOT}/config/local.env" 2>/dev/null; then
+        remote_exec "grep -q '^I4H_SKIP_REPO_UPDATE=' ${REMOTE_DEPLOY}/config/local.env 2>/dev/null || echo 'I4H_SKIP_REPO_UPDATE=1' >> ${REMOTE_DEPLOY}/config/local.env"
+    fi
 else
     remote_exec "mkdir -p ${REMOTE_DEPLOY}"
     remote_rsync "${DEPLOY_ROOT}/" "${REMOTE_DEPLOY}/"
@@ -127,10 +130,6 @@ fi
 
 # Run deploy on remote
 REMOTE_CMD="cd ${REMOTE_DEPLOY} && chmod +x layers/*.sh modes/*.sh verify/*.sh run/*.sh scripts/common.sh"
-
-if [[ "${USE_REPO_ON_JUMP}" -eq 1 ]]; then
-    REMOTE_CMD+=" && export I4H_INSTALL_DIR=/tmp/i4h-workflows"
-fi
 
 REMOTE_CMD+=" && bash modes/deploy-on-gpu-server.sh --from ${FROM_LAYER} --to ${TO_LAYER}"
 
