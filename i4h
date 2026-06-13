@@ -174,7 +174,9 @@ fi
 # ==============================================================================
 
 # HOLOHUB_CMD_NAME: Name of the CLI command/script (used for help messages and logging)
-export HOLOHUB_CMD_NAME=${BASH_SOURCE[0]}
+# Use a stable relative name so nested --local runs inside the container
+# (workdir /workspace/i4h) still resolve ./i4h after exec from deploy scripts.
+export HOLOHUB_CMD_NAME="./i4h"
 
 # HOLOHUB_ROOT: Root directory of the repository (used as base for all relative paths)
 export HOLOHUB_ROOT=${SCRIPT_PATH}

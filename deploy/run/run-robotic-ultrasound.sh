@@ -18,5 +18,7 @@ export RTI_LICENSE_FILE
 
 setup_display_for_docker
 
+export HOLOHUB_CMD_NAME="./i4h"
+
 info "Running: ./i4h run ${I4H_WORKFLOW} ${MODE} --as-root --no-docker-build"
 exec ./i4h run "${I4H_WORKFLOW}" "${MODE}" --as-root --no-docker-build "${EXTRA_ARGS[@]}"
