@@ -1,0 +1,65 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "PI0: Attach Frame GUI (unified freeze)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "localhost", "port": 5678 },
+      "pathMappings": [
+        { "localRoot": "${workspaceFolder}", "remoteRoot": "/workspace/i4h-workflows" }
+      ],
+      "justMyCode": false
+    },
+    {
+      "name": "PI0: Attach Full Frame (DDS all windows)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "localhost", "port": 5678 },
+      "pathMappings": [
+        { "localRoot": "${workspaceFolder}", "remoteRoot": "/workspace/i4h-workflows" }
+      ],
+      "justMyCode": false
+    },
+    {
+      "name": "PI0: Attach Policy Only (fast)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "localhost", "port": 5678 },
+      "pathMappings": [
+        { "localRoot": "${workspaceFolder}", "remoteRoot": "/workspace/i4h-workflows" }
+      ],
+      "justMyCode": false
+    },
+    {
+      "name": "PI0: Attach Inference (eval.py)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "localhost", "port": 5678 },
+      "pathMappings": [
+        { "localRoot": "${workspaceFolder}", "remoteRoot": "/workspace/i4h-workflows" }
+      ],
+      "justMyCode": false
+    },
+    {
+      "name": "PI0: Attach LoRA Train",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "localhost", "port": 5679 },
+      "pathMappings": [
+        { "localRoot": "${workspaceFolder}", "remoteRoot": "/workspace/i4h-workflows" }
+      ],
+      "justMyCode": false
+    },
+    {
+      "name": "PI0: Attach Policy DDS",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "localhost", "port": 5680 },
+      "pathMappings": [
+        { "localRoot": "${workspaceFolder}", "remoteRoot": "/workspace/i4h-workflows" }
+      ],
+      "justMyCode": false
+    }
+  ]
+}
