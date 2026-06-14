@@ -3,9 +3,12 @@
 # Usage on the GPU server:
 #   bash deploy/debug/pi0-debug.sh sync-deps       # copy openpi+lerobot from image (once)
 #   bash deploy/debug/pi0-debug.sh sync-hf-cache  # copy HF weights from image (once, ~9GB)
+#   bash deploy/debug/pi0-debug.sh sync-pi0-base  # persist pi0_base (~11GB) to /data/cache/openpi
 #   bash deploy/debug/pi0-debug.sh verify          # smoke-test inference + LoRA config
 #   bash deploy/debug/pi0-debug.sh shell           # interactive debug container
 #   bash deploy/debug/pi0-debug.sh infer           # start inference debugpy (port 5678)
+#   bash deploy/debug/pi0-debug.sh prepare-mock-data # mock HDF5 → LeRobot (no sim)
+#   bash deploy/debug/pi0-debug.sh train-smoke     # LoRA 2-step smoke (no debugpy)
 #   bash deploy/debug/pi0-debug.sh train           # start LoRA train debugpy (port 5679)
 #   bash deploy/debug/pi0-debug.sh sim             # sim_env only (split debug terminal 1)
 #   bash deploy/debug/pi0-debug.sh policy          # pi0_policy DDS only (split debug terminal 2)
@@ -95,7 +98,7 @@ start_debug_container() {
     xhost +local:docker 2>/dev/null || true
   fi
 
-  mkdir -p "${CACHE_ROOT}/huggingface" "${CACHE_ROOT}/i4h-assets"
+  mkdir -p "${CACHE_ROOT}/huggingface" "${CACHE_ROOT}/i4h-assets" "${CACHE_ROOT}/openpi" "${CACHE_ROOT}/i4h-mock-train/hdf5"
   mkdir -p "${DOCKER_ROOT}/isaac-sim/cache/kit" \
            "${DOCKER_ROOT}/isaac-sim/cache/ov" \
            "${DOCKER_ROOT}/isaac-sim/cache/pip" \
@@ -129,6 +132,8 @@ start_debug_container() {
     -v "${ROOT}:/workspace/i4h-workflows" \
     -v "${CACHE_ROOT}/huggingface:/root/.cache/huggingface" \
     -v "${CACHE_ROOT}/i4h-assets:/root/.cache/i4h-assets" \
+    -v "${CACHE_ROOT}/openpi:/root/.cache/openpi:rw" \
+    -v "${CACHE_ROOT}/i4h-mock-train:/data/cache/i4h-mock-train:rw" \
     -v "${DOCKER_ROOT}/isaac-sim/cache/kit:/isaac-sim/kit/cache:rw" \
     -v "${DOCKER_ROOT}/isaac-sim/cache/ov:/root/.cache/ov:rw" \
     -v "${DOCKER_ROOT}/isaac-sim/cache/pip:/root/.cache/pip:rw" \
@@ -172,7 +177,7 @@ case "${cmd}" in
       exit 0
     fi
     # Try copying from any existing workflow/debug container (runtime cache, not in image layer)
-    local src_cid=""
+    src_cid=""
     for c in $(docker_cli ps -aq --filter ancestor="${IMAGE}" 2>/dev/null); do
       if docker_cli exec "${c}" test -d /root/.cache/huggingface/hub/models--nvidia--Liver_Scan_Pi0_Cosmos_Rel 2>/dev/null; then
         src_cid="${c}"
@@ -187,6 +192,30 @@ case "${cmd}" in
     fi
     echo "No local HF cache found in image or containers."
     echo "Run: $0 download-model   # uses hf-mirror.com, saves to ${CACHE_ROOT}/huggingface"
+    exit 1
+    ;;
+  sync-pi0-base|sync_pi0_base)
+    mkdir -p "${CACHE_ROOT}/openpi"
+    if [[ -d "${CACHE_ROOT}/openpi/openpi-assets/checkpoints/pi0_base/params" ]]; then
+      echo "pi0_base cache already on host:"
+      du -sh "${CACHE_ROOT}/openpi"
+      exit 0
+    fi
+    src_cid=""
+    for c in $(docker_cli ps -aq 2>/dev/null); do
+      if docker_cli exec "${c}" test -d /root/.cache/openpi/openpi-assets/checkpoints/pi0_base/params 2>/dev/null; then
+        src_cid="${c}"
+        break
+      fi
+    done
+    if [[ -n "${src_cid}" ]]; then
+      echo "Copying openpi cache (pi0_base) from container ${src_cid:0:12}..."
+      docker_cli cp "${src_cid}:/root/.cache/openpi/." "${CACHE_ROOT}/openpi/"
+      du -sh "${CACHE_ROOT}/openpi"
+      exit 0
+    fi
+    echo "No pi0_base cache found. Start a train run once; it downloads to ${CACHE_ROOT}/openpi (persisted after fix)."
+    echo "Or: $0 train-smoke   # downloads + 2 steps, then cache remains on host"
     exit 1
     ;;
   download-model)
@@ -263,6 +292,18 @@ case "${cmd}" in
     start_debug_container "5679"
     echo "SSH tunnel from laptop: ssh -L 5679:localhost:5679 ubuntu@<host>"
     run_in_container "bash workflows/robotic_ultrasound/scripts/debug/start_pi0_train_debug.sh"
+    ;;
+  prepare-mock-data|prepare_mock_data)
+    ensure_openpi_on_host
+    start_debug_container
+    echo "Creating mock HDF5 + LeRobot dataset (repo: i4h/debug_lora_mock)"
+    run_in_container "bash workflows/robotic_ultrasound/scripts/debug/prepare_mock_train_data.sh"
+    ;;
+  train-smoke|train_smoke)
+    ensure_openpi_on_host
+    start_debug_container
+    echo "LoRA smoke: mock data + norm stats + ${TRAIN_STEPS:-2} train steps"
+    run_in_container "bash workflows/robotic_ultrasound/scripts/debug/verify_pi0_train.sh"
     ;;
   sim)
     ensure_openpi_on_host
