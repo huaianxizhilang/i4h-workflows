@@ -7,6 +7,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../scripts/common.sh"
 load_config
 
+# 优云智算新机：DNS / 数据盘 / SSH（须在检查 /data 之前）
+# shellcheck source=../scripts/compshare-bootstrap.sh
+source "${SCRIPT_DIR}/../scripts/compshare-bootstrap.sh"
+run_compshare_bootstrap
+resolve_storage_paths
+
 info "L0 preflight checks"
 
 # OS

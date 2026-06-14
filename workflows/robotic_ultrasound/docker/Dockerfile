@@ -21,10 +21,11 @@ FROM nvidia/cuda:12.8.1-devel-ubuntu24.04
 # Set APT_MIRROR= to keep archive.ubuntu.com
 ARG APT_MIRROR=mirrors.ustc.edu.cn
 
-# Optional PyPI mirror configuration
-ARG PIP_INDEX_URL
-ARG PIP_EXTRA_INDEX_URL
-ARG PIP_TRUSTED_HOST
+# PyPI / Miniconda mirrors (China)
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_EXTRA_INDEX_URL=https://pypi.nvidia.com
+ARG PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+ARG CONDA_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/anaconda
 
 SHELL ["/bin/bash", "-c"]
 
@@ -79,7 +80,13 @@ COPY i4h /workspace/i4h-workflows/i4h
 COPY CMakeLists.txt /workspace/i4h-workflows/CMakeLists.txt
 
 RUN mkdir -p /opt/miniconda3 && \
-    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /opt/miniconda3/miniconda.sh && \
+    if [[ -n "${CONDA_MIRROR}" ]]; then \
+        MINICONDA_URL="${CONDA_MIRROR}/miniconda/Miniconda3-latest-Linux-x86_64.sh"; \
+    else \
+        MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"; \
+    fi && \
+    echo "Downloading Miniconda from ${MINICONDA_URL}" && \
+    wget -q "${MINICONDA_URL}" -O /opt/miniconda3/miniconda.sh && \
     bash /opt/miniconda3/miniconda.sh -b -u -p /opt/miniconda3 && \
     rm /opt/miniconda3/miniconda.sh && \
     source /opt/miniconda3/bin/activate && \
@@ -94,6 +101,13 @@ ENV CONDA_DEFAULT_ENV=robotic_ultrasound
 RUN --mount=type=cache,target=/root/.cache/pip \
     source /opt/miniconda3/bin/activate && \
     conda activate robotic_ultrasound && \
+    if [[ -n "${PIP_INDEX_URL}" ]]; then \
+        pip config set global.index-url "${PIP_INDEX_URL}"; \
+        [[ -n "${PIP_TRUSTED_HOST}" ]] && pip config set global.trusted-host "${PIP_TRUSTED_HOST}"; \
+    fi && \
+    if [[ -n "${PIP_EXTRA_INDEX_URL}" ]]; then \
+        pip config set global.extra-index-url "${PIP_EXTRA_INDEX_URL}"; \
+    fi && \
     cd /workspace/i4h-workflows && \
     BUILD_DOCKER_IMAGE=true bash tools/env_setup_robot_us.sh && \
     chmod -R a+rX /opt/miniconda3

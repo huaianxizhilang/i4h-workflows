@@ -9,6 +9,8 @@ load_config
 
 info "L1 system baseline"
 
+configure_host_apt_mirrors
+configure_pip_mirror
 apt_install \
     git curl wget jq vim htop \
     build-essential ca-certificates gnupg lsb-release \

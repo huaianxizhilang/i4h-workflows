@@ -53,4 +53,10 @@ info "Testing GPU inside Docker..."
 docker_gpu_test
 docker_cli run --rm --gpus all "${I4H_CUDA_TEST_IMAGE}" nvidia-smi
 
+# buildctl / buildx — L6 构建进度（buildctl du）
+if [[ "${I4H_INSTALL_BUILDKIT:-1}" == "1" ]]; then
+    apt_install docker-buildx-plugin 2>/dev/null || apt_install buildkit 2>/dev/null || \
+        warn "buildkit not installed — L6 will show disk usage instead of buildctl du"
+fi
+
 info "L3 complete"

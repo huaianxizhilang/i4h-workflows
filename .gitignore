@@ -257,3 +257,6 @@ rti/
 
 # Deploy secrets (passwords, remote host overrides)
 deploy/config/local.env
+
+# Local conversation / session backups (may contain IPs or notes — never commit)
+backup/

@@ -111,10 +111,19 @@ info "Uploading deploy scripts to ${REMOTE_DEPLOY}..."
 
 if [[ "${USE_REPO_ON_JUMP}" -eq 1 ]]; then
     REPO_ROOT="$(cd "${DEPLOY_ROOT}/.." && pwd)"
-    remote_exec "mkdir -p ${REMOTE_DEPLOY} ${I4H_INSTALL_DIR}"
-    remote_rsync "${REPO_ROOT}/" "${I4H_INSTALL_DIR}/"
+    remote_exec "mkdir -p ${REMOTE_DEPLOY}"
     remote_rsync "${DEPLOY_ROOT}/" "${REMOTE_DEPLOY}/"
-    # Repo already synced from jump host — skip remote git fetch in L5
+    # Push local.env before bootstrap so remote scripts see I4H_DATA_ROOT etc.
+    if [[ -f "${DEPLOY_ROOT}/config/local.env" ]]; then
+        remote_rsync "${DEPLOY_ROOT}/config/local.env" "${REMOTE_DEPLOY}/config/local.env"
+    fi
+    # Mount /data before rsync repo to ${I4H_INSTALL_DIR}
+    if [[ "${I4H_COMPSHARE_BOOTSTRAP:-0}" == "1" ]]; then
+        info "Running CompShare bootstrap on remote (DNS + data disk) before repo sync..."
+        remote_exec "cd ${REMOTE_DEPLOY} && chmod +x scripts/*.sh && bash scripts/compshare-bootstrap.sh"
+    fi
+    remote_exec "mkdir -p ${I4H_INSTALL_DIR}"
+    remote_rsync "${REPO_ROOT}/" "${I4H_INSTALL_DIR}/"
     if ! grep -q '^I4H_SKIP_REPO_UPDATE=' "${DEPLOY_ROOT}/config/local.env" 2>/dev/null; then
         remote_exec "grep -q '^I4H_SKIP_REPO_UPDATE=' ${REMOTE_DEPLOY}/config/local.env 2>/dev/null || echo 'I4H_SKIP_REPO_UPDATE=1' >> ${REMOTE_DEPLOY}/config/local.env"
     fi
@@ -128,8 +137,32 @@ if [[ -f "${DEPLOY_ROOT}/config/local.env" ]]; then
     remote_rsync "${DEPLOY_ROOT}/config/local.env" "${REMOTE_DEPLOY}/config/local.env"
 fi
 
+configure_jump_host_ssh() {
+    [[ "${I4H_JUMP_SSH_CONFIG:-1}" == "1" ]] || return 0
+    local alias_name="${I4H_JUMP_SSH_CONFIG_PREFIX:-i4h-gpu}-$(date +%Y%m%d)-${REMOTE_HOST//./-}"
+    local ssh_config="${HOME}/.ssh/config"
+    mkdir -p "${HOME}/.ssh"
+    chmod 700 "${HOME}/.ssh"
+    if [[ -f "${ssh_config}" ]] && grep -q "Host ${alias_name}" "${ssh_config}" 2>/dev/null; then
+        info "Jump host SSH config already has Host ${alias_name}"
+        return 0
+    fi
+    cat >> "${ssh_config}" <<EOF
+
+# i4h GPU — auto-added $(date +%Y-%m-%d) (Mode B deploy)
+Host ${alias_name}
+    HostName ${REMOTE_HOST}
+    User ${I4H_LOGIN_USER:-ubuntu}
+    Port ${REMOTE_PORT}
+    StrictHostKeyChecking accept-new
+EOF
+    chmod 600 "${ssh_config}"
+    info "Added jump host SSH alias: ssh ${alias_name}"
+    warn "跳板机约 3 个月会过期重建 — 过期后请更新 ~/.ssh/config 中的 HostName"
+}
+
 # Run deploy on remote
-REMOTE_CMD="cd ${REMOTE_DEPLOY} && chmod +x layers/*.sh modes/*.sh verify/*.sh run/*.sh scripts/common.sh"
+REMOTE_CMD="cd ${REMOTE_DEPLOY} && chmod +x layers/*.sh modes/*.sh verify/*.sh run/*.sh scripts/*.sh scripts/common.sh"
 
 REMOTE_CMD+=" && bash modes/deploy-on-gpu-server.sh --from ${FROM_LAYER} --to ${TO_LAYER}"
 
@@ -152,6 +185,8 @@ EOF
     fi
     exit $rc
 fi
+
+configure_jump_host_ssh
 
 cat <<EOF
 

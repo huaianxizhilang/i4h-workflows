@@ -21,26 +21,24 @@ export RTI_LICENSE_FILE
 
 setup_display_for_docker
 
-BUILD_ARGS=()
-if [[ "${I4H_BUILD_NO_CACHE}" == "1" ]]; then
-    BUILD_ARGS+=(--no-cache)
+# 自动选择当前最快的 apt 镜像传入 Docker build
+if [[ "${I4H_CONFIGURE_HOST_APT_MIRROR:-1}" == "1" && -z "${I4H_APT_MIRROR:-}" ]]; then
+    I4H_APT_MIRROR="$(pick_apt_mirror)"
+    export I4H_APT_MIRROR
 fi
-
-DOCKER_BUILD_EXTRA=""
-if [[ -n "${I4H_APT_MIRROR:-}" ]]; then
-    DOCKER_BUILD_EXTRA="--build-arg APT_MIRROR=${I4H_APT_MIRROR}"
-    info "Docker build apt mirror: ${I4H_APT_MIRROR}"
-fi
+[[ -n "${I4H_APT_MIRROR:-}" ]] && info "Docker build apt mirror: ${I4H_APT_MIRROR}"
 
 if [[ "${I4H_SKIP_BUILD}" != "1" ]]; then
     info "Building container (first run may take 30-60+ minutes)..."
-    if [[ -n "${DOCKER_BUILD_EXTRA}" ]]; then
-        ./i4h build-container "${I4H_WORKFLOW}" "${BUILD_ARGS[@]}" --build-args "${DOCKER_BUILD_EXTRA}"
-    else
-        ./i4h build-container "${I4H_WORKFLOW}" "${BUILD_ARGS[@]}"
-    fi
+    chmod +x "${SCRIPT_DIR}/../scripts/docker-build-with-progress.sh"
+    bash "${SCRIPT_DIR}/../scripts/docker-build-with-progress.sh" "${I4H_WORKFLOW}"
 else
     info "Skipping build (I4H_SKIP_BUILD=1)"
+fi
+
+if [[ "${I4H_PREFETCH_PI0:-1}" == "1" ]]; then
+    chmod +x "${SCRIPT_DIR}/../scripts/prefetch-pi0-model.sh"
+    bash "${SCRIPT_DIR}/../scripts/prefetch-pi0-model.sh"
 fi
 
 if [[ "${I4H_RUN_SMOKE_TEST}" == "1" ]]; then
@@ -49,4 +47,4 @@ if [[ "${I4H_RUN_SMOKE_TEST}" == "1" ]]; then
 fi
 
 info "L6 complete"
-info "Run workflow: bash ${DEPLOY_ROOT}/run/run-robotic-ultrasound.sh"
+info "Run workflow: bash ${SCRIPT_DIR}/../run/run-robotic-ultrasound.sh"

@@ -1,0 +1,5 @@
+# Public keys for GPU server SSH access (safe to commit).
+# Used when I4H_SSH_AUTHORIZED_KEYS_FILE points here (default in compshare bootstrap).
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFIzjaNutsc4c6hAOgfP3BZWrPaVgskbePrB4LACr2UX 13387253+jshaxzl@user.noreply.gitee.com
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAaD3tT8K4EwsF+EHyUrvKXe/3pAklvPilMUqdn2sEre root@VM-4-17-ubuntu
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINRSPLtaD34FCEhJB/7ypzXYtUNpX9KWrsCpn7TCuMbS 1960774039@qq.com

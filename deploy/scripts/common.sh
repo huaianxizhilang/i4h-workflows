@@ -152,6 +152,8 @@ configure_containerd_data_root() {
         run_root systemctl start containerd 2>/dev/null || true
         run_root systemctl start docker
         info "containerd migrated; symlink ${link} → ${I4H_CONTAINERD_ROOT}"
+        # 释放系统盘：删除迁移备份
+        run_root find /var/lib -maxdepth 1 -name 'containerd.bak.*' -type d -exec rm -rf {} + 2>/dev/null || true
     elif [[ ! -e "${link}" ]]; then
         run_root ln -s "${I4H_CONTAINERD_ROOT}" "${link}"
         info "containerd symlink ${link} → ${I4H_CONTAINERD_ROOT}"
@@ -204,6 +206,10 @@ run_root() {
 }
 
 # Use after usermod -aG docker in the same shell (group not active until re-login).
+_in_docker_group() {
+    getent group docker 2>/dev/null | grep -qE "[,:]${USER}\b"
+}
+
 docker_cli() {
     if [[ "${EUID}" -eq 0 ]]; then
         docker "$@"
@@ -212,17 +218,83 @@ docker_cli() {
     if docker "$@" 2>/dev/null; then
         return 0
     fi
-    if getent group docker 2>/dev/null | grep -qE "[,:]${USER}\b"; then
+    if _in_docker_group; then
         sg docker -c "docker $(printf '%q ' "$@")"
         return $?
     fi
     run_root docker "$@"
 }
 
+# Run arbitrary command with docker socket access (e.g. ./i4h build-container).
+with_docker_access() {
+    if [[ "${EUID}" -eq 0 ]]; then
+        "$@"
+        return $?
+    fi
+    if docker info >/dev/null 2>&1; then
+        "$@"
+        return $?
+    fi
+    if _in_docker_group; then
+        sg docker -c "$(printf '%q ' "$@")"
+        return $?
+    fi
+    run_root "$@"
+}
+
 apt_install() {
     require_root_or_sudo
+    configure_host_apt_mirrors
     run_root apt-get update -qq
     DEBIAN_FRONTEND=noninteractive run_root apt-get install -y "$@"
+}
+
+# Pick a reachable apt mirror from I4H_APT_MIRRORS (fallback when USTC is rate-limited).
+pick_apt_mirror() {
+    local mirrors=(${I4H_APT_MIRRORS:-mirrors.ustc.edu.cn mirrors.aliyun.com mirrors.tuna.tsinghua.edu.cn})
+    local m codename
+    codename="$(. /etc/os-release 2>/dev/null && echo "${VERSION_CODENAME:-noble}")"
+    for m in "${mirrors[@]}"; do
+        if curl -fsSL --connect-timeout 5 --max-time 15 \
+            "http://${m}/ubuntu/dists/${codename}/InRelease" -o /dev/null 2>/dev/null; then
+            echo "${m}"
+            return 0
+        fi
+        warn "Apt mirror unreachable: ${m}"
+    done
+    echo "${mirrors[0]}"
+}
+
+configure_host_apt_mirrors() {
+    [[ "${I4H_CONFIGURE_HOST_APT_MIRROR:-1}" == "1" ]] || return 0
+    require_root_or_sudo
+    local mirror
+    mirror="$(pick_apt_mirror)"
+    info "Host apt mirror: ${mirror}"
+    export I4H_APT_MIRROR="${mirror}"
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do
+        [[ -f "${f}" ]] || continue
+        run_root sed -i \
+            -e "s|http://archive.ubuntu.com/ubuntu/|http://${mirror}/ubuntu/|g" \
+            -e "s|http://security.ubuntu.com/ubuntu/|http://${mirror}/ubuntu/|g" \
+            -e "s|archive.ubuntu.com|${mirror}|g" \
+            -e "s|security.ubuntu.com|${mirror}|g" \
+            "${f}" 2>/dev/null || true
+    done
+}
+
+configure_pip_mirror() {
+    [[ -n "${I4H_PIP_INDEX_URL:-}" ]] || return 0
+    local pip_conf="${HOME}/.pip/pip.conf"
+    mkdir -p "${HOME}/.pip"
+    cat > "${pip_conf}" <<EOF
+[global]
+index-url = ${I4H_PIP_INDEX_URL}
+EOF
+    if [[ -n "${I4H_PIP_TRUSTED_HOST:-}" ]]; then
+        echo "trusted-host = ${I4H_PIP_TRUSTED_HOST}" >> "${pip_conf}"
+    fi
+    info "pip mirror: ${I4H_PIP_INDEX_URL}"
 }
 
 ensure_dirs() {
@@ -467,12 +539,32 @@ download_rti_license() {
     fi
     info "Downloading RTI evaluation license..."
     mkdir -p "$(dirname "${RTI_LICENSE_FILE}")"
-    if command -v curl >/dev/null; then
-        curl -fsSL "${RTI_LICENSE_URL}" -o "${RTI_LICENSE_FILE}"
-    elif command -v wget >/dev/null; then
-        wget -q "${RTI_LICENSE_URL}" -O "${RTI_LICENSE_FILE}"
-    else
-        die "curl or wget required to download RTI license"
+    local attempt max_attempts=5
+    for attempt in $(seq 1 "${max_attempts}"); do
+        if command -v curl >/dev/null; then
+            if curl -fsSL --connect-timeout 30 --max-time 120 \
+                "${RTI_LICENSE_URL}" -o "${RTI_LICENSE_FILE}"; then
+                break
+            fi
+        elif command -v wget >/dev/null; then
+            if wget -q --timeout=120 "${RTI_LICENSE_URL}" -O "${RTI_LICENSE_FILE}"; then
+                break
+            fi
+        else
+            die "curl or wget required to download RTI license"
+        fi
+        rm -f "${RTI_LICENSE_FILE}"
+        if [[ "${attempt}" -eq "${max_attempts}" ]]; then
+            warn "RTI download failed after ${max_attempts} attempts"
+            return 1
+        fi
+        warn "RTI download attempt ${attempt}/${max_attempts} failed — retrying in 10s..."
+        sleep 10
+    done
+    if [[ ! -s "${RTI_LICENSE_FILE}" ]]; then
+        rm -f "${RTI_LICENSE_FILE}"
+        warn "RTI license file empty after download"
+        return 1
     fi
     chmod 644 "${RTI_LICENSE_FILE}"
     info "RTI license saved to ${RTI_LICENSE_FILE}"

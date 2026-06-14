@@ -86,6 +86,11 @@ if [[ "${I4H_RUN_VERIFY_AFTER_DEPLOY}" == "1" && "${TO_LAYER}" == "L6" ]]; then
     bash "${DEPLOY_ROOT}/verify/verify-all.sh"
 fi
 
+if [[ "${TO_LAYER}" == "L6" ]]; then
+    chmod +x "${DEPLOY_ROOT}/scripts/"*.sh 2>/dev/null || true
+    bash "${DEPLOY_ROOT}/scripts/finalize-deploy.sh"
+fi
+
 cat <<EOF
 
 ================================================================================
